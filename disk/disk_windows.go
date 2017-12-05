@@ -7,6 +7,7 @@ import (
 	"context"
 	"unsafe"
 
+	"github.com/StackExchange/wmi"
 	"github.com/shirou/gopsutil/internal/common"
 	"golang.org/x/sys/windows"
 )
@@ -31,6 +32,11 @@ type Win32_PerfFormattedData struct {
 	AvgDiskWriteQueueLength uint64
 	AvgDisksecPerRead       uint64
 	AvgDisksecPerWrite      uint64
+}
+
+type Win32_DiskDrive struct {
+	Name         string
+	SerialNumber string
 }
 
 const WaitMSec = 500
@@ -158,4 +164,21 @@ func IOCounters(names ...string) (map[string]IOCountersStat, error) {
 		}
 	}
 	return ret, nil
+}
+
+func GetDiskSerialNumber(name string) string {
+	var dst []Win32_DiskDrive
+	q := wmi.CreateQuery(&dst, "")
+	ctx, cancel := context.WithTimeout(context.Background(), common.Timeout)
+	defer cancel()
+	err := common.WMIQueryWithContext(ctx, q, &dst)
+	if err != nil {
+		return ""
+	}
+	for _, v := range dst {
+		if v.Name == name {
+			return v.SerialNumber
+		}
+	}
+	return ""
 }
