@@ -21,11 +21,24 @@ import (
 const (
 	NoMoreFiles   = 0x12
 	MaxPathLength = 260
+
+	errnoERROR_IO_PENDING = 997        // https://github.com/golang/go/blob/79f6c280b8c06de823f6c438e5b53052a95057bc/src/internal/syscall/windows/zsyscall_windows.go#L16
+	SE_PRIVILEGE_ENABLED  = 0x00000002 // https://github.com/golang/go/blob/79f6c280b8c06de823f6c438e5b53052a95057bc/src/internal/syscall/windows/security_windows.go#L24
 )
 
 var (
-	modpsapi                 = windows.NewLazyDLL("psapi.dll")
-	procGetProcessMemoryInfo = modpsapi.NewProc("GetProcessMemoryInfo")
+	modadvapi32               = syscall.NewLazyDLL("advapi32.dll")
+	modkernel32               = syscall.NewLazyDLL("kernel32.dll")
+	modpsapi                  = windows.NewLazyDLL("psapi.dll")
+	procAdjustTokenPrivileges = modadvapi32.NewProc("AdjustTokenPrivileges")
+	procGetCurrentProcess     = modkernel32.NewProc("GetCurrentProcess")
+	procGetCurrentThread      = modkernel32.NewProc("GetCurrentThread")
+	procGetProcessMemoryInfo  = modpsapi.NewProc("GetProcessMemoryInfo")
+	procLookupPrivilegeValueW = modadvapi32.NewProc("LookupPrivilegeValueW")
+	procOpenProcessToken      = modadvapi32.NewProc("OpenProcessToken")
+	procOpenThreadToken       = modadvapi32.NewProc("OpenThreadToken")
+
+	errERROR_IO_PENDING error = syscall.Errno(errnoERROR_IO_PENDING)
 )
 
 type SystemProcessInformation struct {
@@ -476,6 +489,11 @@ func getProcInfo(pid int32) (*SystemProcessInformation, error) {
 func getRusage(pid int32) (*windows.Rusage, error) {
 	var CPU windows.Rusage
 
+	err := enableSeDebugPrivilege()
+	if err != nil {
+		return nil, err
+	}
+
 	c, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return nil, err
@@ -542,4 +560,136 @@ func getProcessCPUTimes(pid int32) (SYSTEM_TIMES, error) {
 	)
 
 	return times, err
+}
+
+type LUID struct {
+	LowPart  uint32
+	HighPart int32
+}
+
+type LUID_AND_ATTRIBUTES struct {
+	Luid       LUID
+	Attributes uint32
+}
+
+func errnoErr(e syscall.Errno) error { // https://golang.org/src/syscall/zsyscall_windows.go#L24
+	switch e {
+	case 0:
+		return nil
+	case errnoERROR_IO_PENDING:
+		return errERROR_IO_PENDING
+	}
+	// TODO: add more here, after collecting data on the common
+	// error values see on Windows. (perhaps when running
+	// all.bat?)
+	return e
+}
+
+func getCurrentProcess() (pseudoHandle Handle, err error) { // https://golang.org/src/syscall/zsyscall_windows.go#L674
+	r0, _, e1 := syscall.Syscall(procGetCurrentProcess.Addr(), 0, 0, 0, 0)
+	pseudoHandle = Handle(r0)
+	if pseudoHandle == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func openProcessToken(h Handle, access uint32, token *syscall.Token) (err error) { // https://golang.org/src/syscall/zsyscall_windows.go#L1865
+	r1, _, e1 := syscall.Syscall(procOpenProcessToken.Addr(), 3, uintptr(h), uintptr(access), uintptr(unsafe.Pointer(token)))
+	if r1 == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func lookupPrivilegeValue(systemname *uint16, name *uint16, luid *LUID) (err error) { // https://github.com/golang/go/blob/9c64c65d0ea251c3ac4d49556f10ad6ceb532f52/src/internal/syscall/windows/zsyscall_windows.go#L235
+	r1, _, e1 := syscall.Syscall(procLookupPrivilegeValueW.Addr(), 3, uintptr(unsafe.Pointer(systemname)), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(luid)))
+	if r1 == 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+type Handle uintptr
+type Token Handle
+
+type TOKEN_PRIVILEGES struct { // https://golang.org/src/internal/syscall/windows/security_windows.go#L36
+	PrivilegeCount uint32
+	Privileges     [1]LUID_AND_ATTRIBUTES
+}
+
+func adjustTokenPrivileges(token syscall.Token, disableAllPrivileges bool, newstate *TOKEN_PRIVILEGES, buflen uint32, prevstate *TOKEN_PRIVILEGES, returnlen *uint32) (err error) { // https://golang.org/src/internal/syscall/windows/security_windows.go#L45
+	var _p0 uint32 // inlining https://golang.org/src/internal/syscall/windows/zsyscall_windows.go#L214
+	if disableAllPrivileges {
+		_p0 = 1
+	} else {
+		_p0 = 0
+	}
+	r0, _, e1 := syscall.Syscall6(procAdjustTokenPrivileges.Addr(), 6, uintptr(token), uintptr(_p0), uintptr(unsafe.Pointer(newstate)), uintptr(buflen), uintptr(unsafe.Pointer(prevstate)), uintptr(unsafe.Pointer(returnlen)))
+	var ret = uint32(r0)
+	if true {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	if ret == 0 {
+		// AdjustTokenPrivileges call failed
+		return err
+	}
+	// AdjustTokenPrivileges call succeeded
+	if err == syscall.EINVAL {
+		// GetLastError returned ERROR_SUCCESS
+		return nil
+	}
+	return err
+}
+
+func enableSeDebugPrivilege() error {
+	const TOKEN_QUERY = 4 // https://golang.org/src/syscall/security_windows.go#L219
+	const TOKEN_ADJUST_PRIVILEGES = 6
+	pseudoHandle, err := getCurrentProcess()
+	if err != nil {
+		return err
+	}
+	var hToken syscall.Token
+	err = openProcessToken(pseudoHandle, TOKEN_ADJUST_PRIVILEGES|TOKEN_QUERY, &hToken)
+	if err != nil {
+		return err
+	}
+	defer hToken.Close()
+
+	var luidSEDebugNameValue LUID
+	var tkpPrivileges TOKEN_PRIVILEGES
+	SeDebugPrivilege, err := syscall.UTF16PtrFromString("SeDebugPrivilege")
+	if err != nil {
+		return err
+	}
+	err = lookupPrivilegeValue(nil, SeDebugPrivilege, &luidSEDebugNameValue)
+	if err != nil {
+		return err
+	}
+
+	tkpPrivileges.PrivilegeCount = 1
+	tkpPrivileges.Privileges[0].Luid = luidSEDebugNameValue
+	tkpPrivileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED
+
+	err = adjustTokenPrivileges(hToken, false, &tkpPrivileges, 0, nil, nil)
+	if err != nil {
+		return err
+	}
+	return nil
 }
