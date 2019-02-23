@@ -616,7 +616,7 @@ func decodeAddress(family uint32, src string) (Addr, error) {
 	var ip net.IP
 	// Assumes this is little_endian
 	if family == syscall.AF_INET {
-		ip = net.IP(Reverse(decoded))
+		ip = net.IP(reverse(decoded))
 	} else { // IPv6
 		ip, err = parseIPv6HexString(decoded)
 		if err != nil {
@@ -630,11 +630,7 @@ func decodeAddress(family uint32, src string) (Addr, error) {
 }
 
 // Reverse reverses array of bytes.
-func Reverse(s []byte) []byte {
-	return ReverseWithContext(context.Background(), s)
-}
-
-func ReverseWithContext(ctx context.Context, s []byte) []byte {
+func reverse(s []byte) []byte {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
 	}
@@ -649,7 +645,7 @@ func parseIPv6HexString(src []byte) (net.IP, error) {
 
 	buf := make([]byte, 0, 16)
 	for i := 0; i < len(src); i += 4 {
-		r := Reverse(src[i : i+4])
+		r := reverse(src[i : i+4])
 		buf = append(buf, r...)
 	}
 	return net.IP(buf), nil
