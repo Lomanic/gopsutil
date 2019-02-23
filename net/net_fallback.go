@@ -16,6 +16,14 @@ func IOCountersWithContext(ctx context.Context, pernic bool) ([]IOCountersStat, 
 	return []IOCountersStat{}, common.ErrNotImplementedError
 }
 
+func IOCountersByFile(pernic bool, filename string) ([]IOCountersStat, error) {
+	return IOCountersByFileWithContext(context.Background(), pernic, filename)
+}
+
+func IOCountersByFileWithContext(ctx context.Context, pernic bool, filename string) ([]IOCountersStat, error) {
+	return IOCounters(pernic)
+}
+
 func FilterCounters() ([]FilterStat, error) {
 	return FilterCountersWithContext(context.Background())
 }
@@ -46,4 +54,28 @@ func ConnectionsMax(kind string, max int) ([]ConnectionStat, error) {
 
 func ConnectionsMaxWithContext(ctx context.Context, kind string, max int) ([]ConnectionStat, error) {
 	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func ConnectionsPid(kind string, pid int32) ([]ConnectionStat, error) {
+	return ConnectionsPidWithContext(context.Background(), kind, pid)
+}
+
+func ConnectionsPidWithContext(ctx context.Context, kind string, pid int32) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func ConnectionsPidMax(kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return ConnectionsPidMaxWithContext(context.Background(), kind, pid, max)
+}
+
+func ConnectionsPidMaxWithContext(ctx context.Context, kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func Pids() ([]int32, error) {
+	return PidsWithContext(context.Background())
+}
+
+func PidsWithContext(ctx context.Context) ([]int32, error) {
+	return []int32{}, common.ErrNotImplementedError
 }
