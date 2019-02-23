@@ -132,7 +132,7 @@ func ConnectionsWithContext(ctx context.Context, kind string) ([]ConnectionStat,
 	return ConnectionsPidWithContext(ctx, kind, 0)
 }
 
-// ConnectionsPid Return a list of network connections opened by a process
+// ConnectionsPid returns a list of network connections opened by a process.
 func ConnectionsPid(kind string, pid int32) ([]ConnectionStat, error) {
 	return ConnectionsPidWithContext(context.Background(), kind, pid)
 }
@@ -186,6 +186,22 @@ func getNetStatWithKind(kindType netConnectionKindType) ([]ConnectionStat, error
 	}
 
 	return nil, fmt.Errorf("invalid kind filename, %s", kindType.filename)
+}
+
+func ConnectionsPidMax(kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return ConnectionsPidMaxWithContext(context.Background(), kind, pid, max)
+}
+
+func ConnectionsPidMaxWithContext(ctx context.Context, kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func Pids() ([]int32, error) {
+	return PidsWithContext(context.Background())
+}
+
+func PidsWithContext(ctx context.Context) ([]int32, error) {
+	return []int32{}, common.ErrNotImplementedError
 }
 
 // Return a list of network connections opened returning at most `max`
