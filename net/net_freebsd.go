@@ -123,3 +123,43 @@ func ProtoCounters(protocols []string) ([]ProtoCountersStat, error) {
 func ProtoCountersWithContext(ctx context.Context, protocols []string) ([]ProtoCountersStat, error) {
 	return nil, errors.New("NetProtoCounters not implemented for freebsd")
 }
+
+func Connections(kind string) ([]ConnectionStat, error) {
+	return ConnectionsWithContext(context.Background(), kind)
+}
+
+func ConnectionsWithContext(ctx context.Context, kind string) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func ConnectionsMax(kind string, max int) ([]ConnectionStat, error) {
+	return ConnectionsMaxWithContext(context.Background(), kind, max)
+}
+
+func ConnectionsMaxWithContext(ctx context.Context, kind string, max int) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func ConnectionsPid(kind string, pid int32) ([]ConnectionStat, error) {
+	return ConnectionsPidWithContext(context.Background(), kind, pid)
+}
+
+func ConnectionsPidWithContext(ctx context.Context, kind string, pid int32) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func ConnectionsPidMax(kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return ConnectionsPidMaxWithContext(context.Background(), kind, pid, max)
+}
+
+func ConnectionsPidMaxWithContext(ctx context.Context, kind string, pid int32, max int) ([]ConnectionStat, error) {
+	return []ConnectionStat{}, common.ErrNotImplementedError
+}
+
+func Pids() ([]int32, error) {
+	return PidsWithContext(context.Background())
+}
+
+func PidsWithContext(ctx context.Context) ([]int32, error) {
+	return []int32{}, common.ErrNotImplementedError
+}
