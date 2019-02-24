@@ -489,7 +489,7 @@ func getProcInodes(root string, pid int32, max int) (map[string][]inodeMap, erro
 	return ret, nil
 }
 
-// Pids retunres all pids.
+// Pids returns all pids.
 // Note: this is a copy of process_linux.Pids()
 // FIXME: Import process occures import cycle.
 // move to common made other platform breaking. Need consider.
