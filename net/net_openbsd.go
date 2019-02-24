@@ -17,7 +17,7 @@ import (
 
 var portMatch = regexp.MustCompile(`(.*)\.(\d+)$`)
 
-func ParseNetstat(output string, mode string,
+func parseNetstat(output string, mode string,
 	iocs map[string]IOCountersStat) error {
 	lines := strings.Split(output, "\n")
 
@@ -119,11 +119,11 @@ func IOCountersWithContext(ctx context.Context, pernic bool) ([]IOCountersStat, 
 	lines := strings.Split(string(out), "\n")
 	ret := make([]IOCountersStat, 0, len(lines)-1)
 
-	err = ParseNetstat(string(out), "inb", iocs)
+	err = parseNetstat(string(out), "inb", iocs)
 	if err != nil {
 		return nil, err
 	}
-	err = ParseNetstat(string(out2), "ind", iocs)
+	err = parseNetstat(string(out2), "ind", iocs)
 	if err != nil {
 		return nil, err
 	}
