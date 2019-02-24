@@ -536,7 +536,7 @@ func (p *Process) OpenFilesWithContext(ctx context.Context) ([]OpenFilesStat, er
 }
 
 // Connections returns a slice of net.ConnectionStat used by the process.
-// This returns all kind of the connection. This measn TCP, UDP or UNIX.
+// This returns all kinds of the connection. This means TCP, UDP or UNIX.
 func (p *Process) Connections() ([]net.ConnectionStat, error) {
 	return p.ConnectionsWithContext(context.Background())
 }
@@ -545,7 +545,7 @@ func (p *Process) ConnectionsWithContext(ctx context.Context) ([]net.ConnectionS
 	return net.ConnectionsPid("all", p.Pid)
 }
 
-// Connections returns a slice of net.ConnectionStat used by the process at most `max`
+// ConnectionsMax returns a slice of net.ConnectionStat used by the process at most `max`.
 func (p *Process) ConnectionsMax(max int) ([]net.ConnectionStat, error) {
 	return p.ConnectionsMaxWithContext(context.Background(), max)
 }
