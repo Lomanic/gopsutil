@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -30,6 +31,7 @@ var (
 
 	procQueryFullProcessImageNameW = common.Modkernel32.NewProc("QueryFullProcessImageNameW")
 	procGetPriorityClass           = common.Modkernel32.NewProc("GetPriorityClass")
+	procNtQueryInformationProcess  = common.ModNt.NewProc("NtQueryInformationProcess")
 )
 
 type SystemProcessInformation struct {
@@ -298,6 +300,34 @@ func (p *Process) Cmdline() (string, error) {
 }
 
 func (p *Process) CmdlineWithContext(ctx context.Context) (string, error) {
+	c, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.Pid))
+	if err == nil {
+		defer windows.CloseHandle(c)
+		buf := make([]byte, 32*1024)
+		size := uint32(32 * 1024)
+		const ProcessCommandLineInformation = 60
+		magicNumber1 := 10
+		magicNumber2 := 4
+		if runtime.GOARCH == "386" {
+			magicNumber1 = 8
+			magicNumber2 = 0
+		}
+		ret, _, _ := procNtQueryInformationProcess.Call(
+			uintptr(c),
+			uintptr(ProcessCommandLineInformation),
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(size),
+			uintptr(unsafe.Pointer(&size)))
+		if ret == 0 {
+			weirdCmdline := string(buf[:size])
+			var cmdline string
+			for i := magicNumber1; i < len(weirdCmdline); i += 2 {
+				cmdline += string(weirdCmdline[i])
+			}
+			cmdline = cmdline[magicNumber2 : len(cmdline)-1]
+			return cmdline, nil
+		}
+	}
 	dst, err := GetWin32ProcWithContext(ctx, p.Pid)
 	if err != nil {
 		return "", fmt.Errorf("could not get CommandLine: %s", err)
