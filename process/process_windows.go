@@ -6,10 +6,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
+	"reflect"
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/StackExchange/wmi"
@@ -295,37 +296,56 @@ func (p *Process) ExeWithContext(ctx context.Context) (string, error) {
 	return common.ConvertDOSPath(windows.UTF16ToString(buf[:])), nil
 }
 
+// unicodeString is a Go representation of win32 UNICODE_STRING https://technet.microsoft.com/en-us/windows/ff564879(v=vs.60)
+type unicodeString struct {
+	Length        uint16
+	MaximumLength uint16
+	Buffer        *uint16
+}
+
+func (u unicodeString) String() string {
+	var s []uint16
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&s))
+	hdr.Data = uintptr(unsafe.Pointer(u.Buffer))
+	hdr.Len = int(u.Length / 2)
+	hdr.Cap = int(u.MaximumLength / 2)
+	return string(utf16.Decode(s))
+}
+
 func (p *Process) Cmdline() (string, error) {
 	return p.CmdlineWithContext(context.Background())
 }
-
 func (p *Process) CmdlineWithContext(ctx context.Context) (string, error) {
 	c, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.Pid))
 	if err == nil {
 		defer windows.CloseHandle(c)
-		buf := make([]byte, 32*1024)
-		size := uint32(32 * 1024)
+		var size uint32
 		const ProcessCommandLineInformation = 60
-		magicNumber1 := 10
-		magicNumber2 := 4
-		if runtime.GOARCH == "386" {
-			magicNumber1 = 8
-			magicNumber2 = 0
-		}
+		// first step get size by calling win32 function with null buffer
 		ret, _, _ := procNtQueryInformationProcess.Call(
 			uintptr(c),
 			uintptr(ProcessCommandLineInformation),
-			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(0),
+			uintptr(0),
+			uintptr(unsafe.Pointer(&size)))
+		if ret == 0xC0000225 { // 0xC0000225 == STATUS_NOT_FOUND https://github.com/giampaolo/psutil/issues/1501
+			return "", nil
+		}
+		buffer := make([]uint16, size, size)
+		buf := unicodeString{
+			Length:        0,
+			MaximumLength: uint16(2 * size),
+			Buffer:        &buffer[0],
+		}
+		// now call with buf and proper size
+		ret, _, _ = procNtQueryInformationProcess.Call(
+			uintptr(c),
+			uintptr(ProcessCommandLineInformation),
+			uintptr(unsafe.Pointer(&buf)),
 			uintptr(size),
 			uintptr(unsafe.Pointer(&size)))
 		if ret == 0 {
-			weirdCmdline := string(buf[:size])
-			var cmdline string
-			for i := magicNumber1; i < len(weirdCmdline); i += 2 {
-				cmdline += string(weirdCmdline[i])
-			}
-			cmdline = cmdline[magicNumber2 : len(cmdline)-1]
-			return cmdline, nil
+			return buf.String(), nil
 		}
 	}
 	dst, err := GetWin32ProcWithContext(ctx, p.Pid)
