@@ -300,6 +300,7 @@ func (p *Process) ExeWithContext(ctx context.Context) (string, error) {
 type unicodeString struct {
 	Length        uint16
 	MaximumLength uint16
+	_             [4]byte // align to 0x08
 	Buffer        *uint16
 }
 
@@ -316,36 +317,38 @@ func (p *Process) Cmdline() (string, error) {
 	return p.CmdlineWithContext(context.Background())
 }
 func (p *Process) CmdlineWithContext(ctx context.Context) (string, error) {
-	c, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.Pid))
-	if err == nil {
-		defer windows.CloseHandle(c)
-		var size uint32
-		const ProcessCommandLineInformation = 60
-		// first step get size by calling win32 function with null buffer
-		ret, _, _ := procNtQueryInformationProcess.Call(
-			uintptr(c),
-			uintptr(ProcessCommandLineInformation),
-			uintptr(0),
-			uintptr(0),
-			uintptr(unsafe.Pointer(&size)))
-		if ret == 0xC0000225 { // 0xC0000225 == STATUS_NOT_FOUND https://github.com/giampaolo/psutil/issues/1501
-			return "", nil
-		}
-		buffer := make([]uint16, size, size)
-		buf := unicodeString{
-			Length:        0,
-			MaximumLength: uint16(2 * size),
-			Buffer:        &buffer[0],
-		}
-		// now call with buf and proper size
-		ret, _, _ = procNtQueryInformationProcess.Call(
-			uintptr(c),
-			uintptr(ProcessCommandLineInformation),
-			uintptr(unsafe.Pointer(&buf)),
-			uintptr(size),
-			uintptr(unsafe.Pointer(&size)))
-		if ret == 0 {
-			return buf.String(), nil
+	if windows.GetCurrentProcessToken().IsElevated() {
+		c, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.Pid))
+		if err == nil {
+			defer windows.CloseHandle(c)
+			var size uint32
+			const ProcessCommandLineInformation = 60
+			// first step get size by calling win32 function with null buffer
+			ret, _, _ := procNtQueryInformationProcess.Call(
+				uintptr(c),
+				uintptr(ProcessCommandLineInformation),
+				uintptr(0),
+				uintptr(0),
+				uintptr(unsafe.Pointer(&size)))
+			if ret == 0xC0000225 { // 0xC0000225 == STATUS_NOT_FOUND https://github.com/giampaolo/psutil/issues/1501
+				return "", nil
+			}
+			buffer := make([]uint16, size, size)
+			buf := unicodeString{
+				Length:        0,
+				MaximumLength: uint16(2 * size),
+				Buffer:        &buffer[0],
+			}
+			// now call with buf and proper size
+			ret, _, _ = procNtQueryInformationProcess.Call(
+				uintptr(c),
+				uintptr(ProcessCommandLineInformation),
+				uintptr(unsafe.Pointer(&buf)),
+				uintptr(size),
+				uintptr(unsafe.Pointer(&size)))
+			if ret == 0 {
+				return buf.String(), nil
+			}
 		}
 	}
 	dst, err := GetWin32ProcWithContext(ctx, p.Pid)
