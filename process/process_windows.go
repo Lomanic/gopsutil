@@ -155,25 +155,23 @@ func pidsWithContext(ctx context.Context) ([]int32, error) {
 	// and https://github.com/giampaolo/psutil/blob/1c3a15f637521ba5c0031283da39c733fda53e4c/psutil/arch/windows/process_info.c#L315-L329
 	var ret []int32
 	var read uint32 = 0
-	var psSize uint32 = 1024
+	var psSize uint32 = 0
 	const dwordSize uint32 = 4
 
 	for {
+		psSize += 1024
 		ps := make([]uint32, psSize)
 		if !w32.EnumProcesses(ps, uint32(len(ps)), &read) {
 			return nil, fmt.Errorf("could not get w32.EnumProcesses")
 		}
 		if uint32(len(ps)) == read { // ps buffer was too small to host every results, retry with a bigger one
-			psSize += 1024
 			continue
 		}
 		for _, pid := range ps[:read/dwordSize] {
 			ret = append(ret, int32(pid))
 		}
 		return ret, nil
-
 	}
-
 }
 
 func PidExistsWithContext(ctx context.Context, pid int32) (bool, error) {
@@ -198,7 +196,7 @@ func PidExistsWithContext(ctx context.Context, pid int32) (bool, error) {
 		return false, err
 	}
 	const STILL_ACTIVE = 259 // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getexitcodeprocess
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if err == windows.ERROR_ACCESS_DENIED {
 		return true, nil
 	}
@@ -211,7 +209,14 @@ func PidExistsWithContext(ctx context.Context, pid int32) (bool, error) {
 	defer syscall.CloseHandle(syscall.Handle(h))
 	var exitCode uint32
 	err = windows.GetExitCodeProcess(h, &exitCode)
-	return exitCode == STILL_ACTIVE, err
+	if err != nil {
+		return false, err
+	}
+	if exitCode != STILL_ACTIVE {
+		return false, nil
+	}
+	event, err := windows.WaitForSingleObject(h, 0)
+	return event == uint32(windows.WAIT_TIMEOUT), err
 }
 
 func (p *Process) Ppid() (int32, error) {
@@ -603,25 +608,29 @@ func (p *Process) Children() ([]*Process, error) {
 
 func (p *Process) ChildrenWithContext(ctx context.Context) ([]*Process, error) {
 	out := []*Process{}
-	snap := w32.CreateToolhelp32Snapshot(w32.TH32CS_SNAPPROCESS, uint32(0))
-	if snap == 0 {
-		return out, windows.GetLastError()
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, uint32(0))
+	if err != nil {
+		return out, err
 	}
-	defer w32.CloseHandle(snap)
-	var pe32 w32.PROCESSENTRY32
-	pe32.DwSize = uint32(unsafe.Sizeof(pe32))
-	if !w32.Process32First(snap, &pe32) {
-		return out, windows.GetLastError()
+	defer windows.CloseHandle(snap)
+	var pe32 windows.ProcessEntry32
+	pe32.Size = uint32(unsafe.Sizeof(pe32))
+	if err := windows.Process32First(snap, &pe32); err != nil {
+		return out, err
 	}
 	for {
-		if pe32.Th32ParentProcessID == uint32(p.Pid) {
-			p, err := NewProcess(int32(pe32.Th32ProcessID))
+		if pe32.ParentProcessID == uint32(p.Pid) {
+			p, err := NewProcess(int32(pe32.ProcessID))
 			if err == nil {
 				out = append(out, p)
 			}
 		}
-		if !w32.Process32Next(snap, &pe32) {
+		err := windows.Process32Next(snap, &pe32)
+		if err == windows.ERROR_NO_MORE_FILES {
 			break
+		}
+		if err != nil {
+			return out, err
 		}
 	}
 	return out, nil
@@ -704,16 +713,12 @@ func (p *Process) Terminate() error {
 }
 
 func (p *Process) TerminateWithContext(ctx context.Context) error {
-	// PROCESS_TERMINATE = 0x0001
-	proc := w32.OpenProcess(0x0001, false, uint32(p.Pid))
-	ret := w32.TerminateProcess(proc, 0)
-	w32.CloseHandle(proc)
-
-	if ret == false {
-		return windows.GetLastError()
-	} else {
-		return nil
+	c, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(p.Pid))
+	if err != nil {
+		return err
 	}
+	defer windows.CloseHandle(c)
+	return windows.TerminateProcess(c, 0)
 }
 
 func (p *Process) Kill() error {
@@ -726,23 +731,27 @@ func (p *Process) KillWithContext(ctx context.Context) error {
 }
 
 func getFromSnapProcess(pid int32) (int32, int32, string, error) {
-	snap := w32.CreateToolhelp32Snapshot(w32.TH32CS_SNAPPROCESS, uint32(pid))
-	if snap == 0 {
-		return 0, 0, "", windows.GetLastError()
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, uint32(0))
+	if err != nil {
+		return 0, 0, "", err
 	}
-	defer w32.CloseHandle(snap)
-	var pe32 w32.PROCESSENTRY32
-	pe32.DwSize = uint32(unsafe.Sizeof(pe32))
-	if !w32.Process32First(snap, &pe32) {
-		return 0, 0, "", windows.GetLastError()
+	defer windows.CloseHandle(snap)
+	var pe32 windows.ProcessEntry32
+	pe32.Size = uint32(unsafe.Sizeof(pe32))
+	if err := windows.Process32First(snap, &pe32); err != nil {
+		return 0, 0, "", err
 	}
 	for {
-		if pe32.Th32ProcessID == uint32(pid) {
-			szexe := windows.UTF16ToString(pe32.SzExeFile[:])
-			return int32(pe32.Th32ParentProcessID), int32(pe32.CntThreads), szexe, nil
+		if pe32.ProcessID == uint32(pid) {
+			exeFile := windows.UTF16ToString(pe32.ExeFile[:])
+			return int32(pe32.ParentProcessID), int32(pe32.Threads), exeFile, nil
 		}
-		if !w32.Process32Next(snap, &pe32) {
+		err := windows.Process32Next(snap, &pe32)
+		if err == windows.ERROR_NO_MORE_FILES {
 			break
+		}
+		if err != nil {
+			return 0, 0, "", err
 		}
 	}
 	return 0, 0, "", fmt.Errorf("couldn't find pid: %d", pid)
