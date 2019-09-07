@@ -5,8 +5,15 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/shirou/gopsutil/internal/common"
 	"github.com/stretchr/testify/assert"
 )
+
+func skipIfNotImplementedErr(t *testing.T, err error) {
+	if err == common.ErrNotImplementedError {
+		t.Skip("not implemented")
+	}
+}
 
 func TestVirtual_memory(t *testing.T) {
 	if runtime.GOOS == "solaris" {
@@ -14,6 +21,7 @@ func TestVirtual_memory(t *testing.T) {
 	}
 
 	v, err := VirtualMemory()
+	skipIfNotImplementedErr(t, err)
 	if err != nil {
 		t.Errorf("error %v", err)
 	}
@@ -58,6 +66,7 @@ func TestVirtual_memory(t *testing.T) {
 
 func TestSwap_memory(t *testing.T) {
 	v, err := SwapMemory()
+	skipIfNotImplementedErr(t, err)
 	if err != nil {
 		t.Errorf("error %v", err)
 	}
