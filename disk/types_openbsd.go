@@ -49,9 +49,7 @@ type (
 	_C_long_double C.longlong
 )
 
-type Statfs C.struct_statfs
 type Diskstats C.struct_diskstats
-type Fsid C.fsid_t
 type Timeval C.struct_timeval
 
 type Diskstat C.struct_diskstat

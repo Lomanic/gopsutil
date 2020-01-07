@@ -29,32 +29,6 @@ type (
 	_C_long_double int64
 )
 
-type Statfs struct {
-	F_flags       uint32
-	F_bsize       uint32
-	F_iosize      uint32
-	Pad_cgo_0     [4]byte
-	F_blocks      uint64
-	F_bfree       uint64
-	F_bavail      int64
-	F_files       uint64
-	F_ffree       uint64
-	F_favail      int64
-	F_syncwrites  uint64
-	F_syncreads   uint64
-	F_asyncwrites uint64
-	F_asyncreads  uint64
-	F_fsid        Fsid
-	F_namemax     uint32
-	F_owner       uint32
-	F_ctime       uint64
-	F_fstypename  [16]int8
-	F_mntonname   [90]int8
-	F_mntfromname [90]int8
-	F_mntfromspec [90]int8
-	Pad_cgo_1     [2]byte
-	Mount_info    [160]byte
-}
 type Diskstats struct {
 	Name       [16]int8
 	Busy       int32
@@ -67,9 +41,6 @@ type Diskstats struct {
 	Attachtime Timeval
 	Timestamp  Timeval
 	Time       Timeval
-}
-type Fsid struct {
-	Val [2]int32
 }
 type Timeval struct {
 	Sec  int64
