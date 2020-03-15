@@ -5,11 +5,14 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"unsafe"
 
 	"github.com/StackExchange/wmi"
 	"github.com/shirou/gopsutil/internal/common"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -103,7 +106,66 @@ func Info() ([]InfoStat, error) {
 }
 
 func InfoWithContext(ctx context.Context) ([]InfoStat, error) {
+	// https://github.com/DataDog/gohai/blob/107ebc5d16adf023a132bd93174fec57d482c3c2/cpu/cpu_windows.go#L128
 	var ret []InfoStat
+
+	var systemInfo systemInfo
+	_, _, err := procGetNativeSystemInfo.Call(uintptr(unsafe.Pointer(&systemInfo)))
+	if systemInfo.dwNumberOfProcessors == 0 {
+		return ret, err
+	}
+	fmt.Printf("DEBUG systemInfo %+v\n", systemInfo)
+
+	const centralProcessorListHive = `HARDWARE\DESCRIPTION\System\CentralProcessor`
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		centralProcessorListHive,
+		registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return ret, err
+	}
+	defer k.Close()
+
+	subkeys, err := k.ReadSubKeyNames(-1)
+	if err != nil {
+		return ret, err
+	}
+	for _, subkey := range subkeys {
+		i, err := strconv.Atoi(subkey)
+		if err != nil {
+			continue
+		}
+		centralProcessorHive := fmt.Sprintf(`%v\%v`, centralProcessorListHive, subkey)
+		kk, err := registry.OpenKey(registry.LOCAL_MACHINE,
+			centralProcessorHive,
+			registry.QUERY_VALUE)
+		if err != nil {
+			return ret, err
+		}
+		defer kk.Close()
+
+		cpu := InfoStat{
+			CPU:      int32(i),
+			Model:    strconv.Itoa(int((systemInfo.wProcessorRevision >> 8) & 0xFF)),
+			Stepping: int32(systemInfo.wProcessorRevision & 0xFF),
+			Flags:    []string{},
+		}
+		mhz, _, _ := kk.GetIntegerValue("~MHz")
+		cpu.Mhz = float64(mhz)
+		cpu.ModelName, _, _ = kk.GetStringValue("ProcessorNameString")
+		cpu.VendorID, _, _ = kk.GetStringValue("VendorIdentifier")
+		if s, _, err := kk.GetStringValue("Identifier"); err == nil {
+			re := regexp.MustCompile(`Family ([0-9]+)`)
+			matches := re.FindStringSubmatch(s)
+			if matches != nil && len(matches) >= 2 {
+				cpu.Family = matches[1]
+			}
+		}
+		// FIXME: MISSING: Cores https://github.com/DataDog/gohai/commit/1f9d6238c0662a3a4318e61a4912c33b20c8ad3b
+
+		fmt.Printf("DEBUG %+v\n", cpu)
+		//ret = append(ret, cpu)
+	}
+
 	var dst []Win32_Processor
 	q := wmi.CreateQuery(&dst, "")
 	if err := common.WMIQueryWithContext(ctx, q, &dst); err != nil {
