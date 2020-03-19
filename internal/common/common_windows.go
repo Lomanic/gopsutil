@@ -144,7 +144,11 @@ func WMIQueryWithContext(ctx context.Context, query string, dst interface{}, con
 // into:
 //   "C:\Windows\systemew\file.txt"
 func ConvertDOSPath(p string) string {
-	rawDrive := strings.Join(strings.Split(p, `\`)[:3], `\`)
+	parts := strings.Split(p, `\`)
+	if len(parts) < 3 {
+		return p
+	}
+	rawDrive := strings.Join(parts[:3], `\`)
 
 	for d := 'A'; d <= 'Z'; d++ {
 		szDeviceName := string(d) + ":"
