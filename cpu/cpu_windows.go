@@ -13,8 +13,10 @@ import (
 )
 
 var (
-	procGetActiveProcessorCount = common.Modkernel32.NewProc("GetActiveProcessorCount")
-	procGetNativeSystemInfo     = common.Modkernel32.NewProc("GetNativeSystemInfo")
+	procGetActiveProcessorCount          = common.Modkernel32.NewProc("GetActiveProcessorCount")
+	procGetNativeSystemInfo              = common.Modkernel32.NewProc("GetNativeSystemInfo")
+	procGetLogicalProcessorInformation   = common.Modkernel32.NewProc("GetLogicalProcessorInformation")
+	procGetLogicalProcessorInformationEx = common.Modkernel32.NewProc("GetLogicalProcessorInformationEx")
 )
 
 type Win32_Processor struct {
@@ -242,6 +244,38 @@ func CountsWithContext(ctx context.Context, logical bool) (int, error) {
 	}
 	// physical cores https://github.com/giampaolo/psutil/blob/d01a9eaa35a8aadf6c519839e987a49d8be2d891/psutil/_psutil_windows.c#L499
 	// for the time being, try with unreliable and slow WMI call…
+	// https://github.com/giampaolo/psutil/commit/34e98b6e2a5739f9e633436e8cd61f3246c1091e for WinXP+Vista
+	if err := procGetLogicalProcessorInformationEx.Find(); err != nil  { // WinXP/Vista, max 64 physical nodes returned
+		var buflen uint32 = 1
+		var buf []byte
+		var ret uintptr = 0
+		var err error = windows.ERROR_INSUFFICIENT_BUFFER
+		for ret == 0 && err == windows.ERROR_INSUFFICIENT_BUFFER {
+			buf = make([]byte, buflen)
+			ret, _, err = procGetLogicalProcessorInformation.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&buflen)))
+		}
+		if ret == 0 {
+			return 0, err
+		}
+		numaNodeCount := 0
+		corecount := 0
+		logicalcount := 0
+		pkgcount := 0
+		// walk through each of the buffers
+		for i := 0; uint32(i) < buflen; i += systemLogicalProcessorInformationSize {
+			info := byteArraytoSystemLogicalProcessorInformation(buf[i : i+systemLogicalProcessorInformationSize])
+			switch info.Relationship {
+			case relationNumaNode:
+				numaNodeCount++
+			case relationProcessorCore:
+				corecount++
+				logicalcount += countBits(uint64(info.ProcessorMask))
+			case relationProcessorPackage:
+				pkgcount++
+			}
+		}
+		return corecount, nil
+	}
 	var dst []Win32_Processor
 	q := wmi.CreateQuery(&dst, "")
 	if err := common.WMIQueryWithContext(ctx, q, &dst); err != nil {
@@ -252,4 +286,91 @@ func CountsWithContext(ctx context.Context, logical bool) (int, error) {
 		count += d.NumberOfCores
 	}
 	return int(count), nil
+}
+
+type CACHE_DESCRIPTOR struct {
+	Level         uint8
+	Associativity uint8
+	LineSize      uint16
+	Size          uint32
+	cacheType     uint32
+}
+
+// systemLogicalProcessorInformation is an equivalent representation of SYSTEM_LOGICAL_PROCESSOR_INFORMATION in the Windows API.
+// https://docs.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-system_logical_processor_information
+type systemLogicalProcessorInformation struct {
+	ProcessorMask uintptr
+	Relationship  int // enum (int)
+	// in the Windows header, this is a union of a byte, a DWORD,
+	// and a CACHE_DESCRIPTOR structure
+	dataunion [16]byte
+}
+
+//.const systemLogicalProcessorInformationSize = 32
+
+type GROUP_AFFINITY struct {
+	Mask     uintptr
+	Group    uint16
+	Reserved [3]uint16
+}
+type NUMA_NODE_RELATIONSHIP struct {
+	NodeNumber uint32
+	Reserved   [20]uint8
+	GroupMask  GROUP_AFFINITY
+}
+type CACHE_RELATIONSHIP struct {
+	Level         uint8
+	Associativity uint8
+	LineSize      uint16
+	CacheSize     uint32
+	CacheType     int // enum in C
+	Reserved      [20]uint8
+	GroupMask     GROUP_AFFINITY
+}
+
+type PROCESSOR_GROUP_INFO struct {
+	MaximumProcessorCount uint8
+	ActiveProcessorCount  uint8
+	Reserved              [38]uint8
+	ActiveProcessorMask   uintptr
+}
+type GROUP_RELATIONSHIP struct {
+	MaximumGroupCount uint16
+	ActiveGroupCount  uint16
+	Reserved          [20]uint8
+	// variable size array of PROCESSOR_GROUP_INFO
+}
+type PROCESSOR_RELATIONSHIP struct {
+	Flags           uint8
+	EfficiencyClass uint8
+	wReserved       [20]uint8
+	GroupCount      uint16
+	// what follows is an array of zero or more GROUP_AFFINITY structures
+}
+
+type SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX struct {
+	Relationship int
+	Size         uint32
+	// what follows is a C union of
+	// PROCESSOR_RELATIONSHIP,
+	// NUMA_NODE_RELATIONSHIP,
+	// CACHE_RELATIONSHIP,
+	// GROUP_RELATIONSHIP
+}
+
+const relationProcessorCore = 0
+const relationNumaNode = 1
+const relationCache = 2
+const relationProcessorPackage = 3
+const relationGroup = 4
+
+func countBits(num uint64) (count int) {
+	count = 0
+	for num > 0 {
+		if (num & 0x1) == 1 {
+			count++
+		}
+		num >>= 1
+	}
+	return
 }
