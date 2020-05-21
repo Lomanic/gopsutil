@@ -165,23 +165,18 @@ func InfoWithContext(ctx context.Context) ([]InfoStat, error) {
 			if key == "revision" {
 				val = strings.Split(value, ".")[0]
 			}
-
-			t, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return ret, err
+			if t, err := strconv.ParseInt(val, 10, 64); err == nil {
+				c.Stepping = int32(t)
 			}
-			c.Stepping = int32(t)
 		case "cpu MHz", "clock":
 			// treat this as the fallback value, thus we ignore error
 			if t, err := strconv.ParseFloat(strings.Replace(value, "MHz", "", 1), 64); err == nil {
 				c.Mhz = t
 			}
 		case "cache size":
-			t, err := strconv.ParseInt(strings.Replace(value, " KB", "", 1), 10, 64)
-			if err != nil {
-				return ret, err
+			if t, err := strconv.ParseInt(strings.Replace(value, " KB", "", 1), 10, 64); err == nil {
+				c.CacheSize = int32(t)
 			}
-			c.CacheSize = int32(t)
 		case "physical id":
 			c.PhysicalID = value
 		case "core id":
