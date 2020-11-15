@@ -3,6 +3,8 @@ package cpu
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -89,5 +91,150 @@ func TestCPUCountsAgainstLscpu(t *testing.T) {
 	}
 	if expectedLogical != logical {
 		t.Errorf("expected %v, got %v", expectedLogical, logical)
+	}
+}
+
+var cpuInfoTests = []struct {
+	mockedRootFS string
+	stats        []InfoStat
+}{
+	{"intelcorei5", []InfoStat{{
+		CPU:        0,
+		VendorID:   "GenuineIntel",
+		Family:     "6",
+		Model:      "78",
+		Stepping:   3,
+		PhysicalID: "0",
+		CoreID:     "0",
+		Cores:      1,
+		ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+		Mhz:        3000,
+		CacheSize:  3072,
+		Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+		Microcode:  "0xc2",
+	}, {
+		CPU:        1,
+		VendorID:   "GenuineIntel",
+		Family:     "6",
+		Model:      "78",
+		Stepping:   3,
+		PhysicalID: "0",
+		CoreID:     "1",
+		Cores:      1,
+		ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+		Mhz:        3000,
+		CacheSize:  3072,
+		Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+		Microcode:  "0xc2",
+	}, {
+		CPU:        2,
+		VendorID:   "GenuineIntel",
+		Family:     "6",
+		Model:      "78",
+		Stepping:   3,
+		PhysicalID: "0",
+		CoreID:     "0",
+		Cores:      1,
+		ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+		Mhz:        3000,
+		CacheSize:  3072,
+		Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+		Microcode:  "0xc2",
+	}, {
+		CPU:        3,
+		VendorID:   "GenuineIntel",
+		Family:     "6",
+		Model:      "78",
+		Stepping:   3,
+		PhysicalID: "0",
+		CoreID:     "1",
+		Cores:      1,
+		ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+		Mhz:        3000,
+		CacheSize:  3072,
+		Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+		Microcode:  "0xc2",
+	}},
+	},
+	// {`toto`, []InfoStat{{
+	// 	CPU:        0,
+	// 	VendorID:   "",
+	// 	Family:     "",
+	// 	Model:      "",
+	// 	Stepping:   0,
+	// 	PhysicalID: "",
+	// 	CoreID:     "0",
+	// 	Cores:      1,
+	// 	ModelName:  "AArch64 Processor rev 4 (aarch64)",
+	// 	Mhz:        1512,
+	// 	CacheSize:  0,
+	// 	Flags:      []string{},
+	// 	Microcode:  "0xc2",
+	// }, {
+	// 	CPU:        1,
+	// 	VendorID:   "GenuineIntel",
+	// 	Family:     "6",
+	// 	Model:      "78",
+	// 	Stepping:   3,
+	// 	PhysicalID: "0",
+	// 	CoreID:     "1",
+	// 	Cores:      1,
+	// 	ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+	// 	Mhz:        3000,
+	// 	CacheSize:  3072,
+	// 	Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+	// 	Microcode:  "0xc2",
+	// }, {
+	// 	CPU:        2,
+	// 	VendorID:   "GenuineIntel",
+	// 	Family:     "6",
+	// 	Model:      "78",
+	// 	Stepping:   3,
+	// 	PhysicalID: "0",
+	// 	CoreID:     "0",
+	// 	Cores:      1,
+	// 	ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+	// 	Mhz:        3000,
+	// 	CacheSize:  3072,
+	// 	Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+	// 	Microcode:  "0xc2",
+	// }, {
+	// 	CPU:        3,
+	// 	VendorID:   "GenuineIntel",
+	// 	Family:     "6",
+	// 	Model:      "78",
+	// 	Stepping:   3,
+	// 	PhysicalID: "0",
+	// 	CoreID:     "1",
+	// 	Cores:      1,
+	// 	ModelName:  "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+	// 	Mhz:        3000,
+	// 	CacheSize:  3072,
+	// 	Flags:      []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov", "pat", "pse36", "clflush", "dts", "acpi", "mmx", "fxsr", "sse", "sse2", "ss", "ht", "tm", "pbe", "syscall", "nx", "pdpe1gb", "rdtscp", "lm", "constant_tsc", "art", "arch_perfmon", "pebs", "bts", "rep_good", "nopl", "xtopology", "nonstop_tsc", "aperfmperf", "pni", "pclmulqdq", "dtes64", "monitor", "ds_cpl", "vmx", "smx", "est", "tm2", "ssse3", "sdbg", "fma", "cx16", "xtpr", "pdcm", "pcid", "sse4_1", "sse4_2", "x2apic", "movbe", "popcnt", "tsc_deadline_timer", "aes", "xsave", "avx", "f16c", "rdrand", "lahf_lm", "abm", "3dnowprefetch", "epb", "invpcid_single", "ibrs", "ibpb", "stibp", "kaiser", "tpr_shadow", "vnmi", "flexpriority", "ept", "vpid", "fsgsbase", "tsc_adjust", "bmi1", "hle", "avx2", "smep", "bmi2", "erms", "invpcid", "rtm", "mpx", "rdseed", "adx", "smap", "clflushopt", "intel_pt", "xsaveopt", "xsavec", "xgetbv1", "xsaves", "dtherm", "ida", "arat", "pln", "pts", "hwp", "hwp_notify", "hwp_act_window", "hwp_epp"},
+	// 	Microcode:  "0xc2",
+	// }},
+	// },
+}
+
+func TestCpuInfoLinux(t *testing.T) {
+	origProc := os.Getenv("HOST_PROC")
+	defer os.Setenv("HOST_PROC", origProc)
+	origSys := os.Getenv("HOST_PROC")
+	defer os.Setenv("HOST_SYS", origSys)
+
+	for _, tt := range cpuInfoTests {
+		t.Run(tt.mockedRootFS, func(t *testing.T) {
+			os.Setenv("HOST_PROC", filepath.Join("testdata/linux/cpuinfo/", tt.mockedRootFS, "proc"))
+			os.Setenv("HOST_SYS", filepath.Join("testdata/linux/cpuinfo/", tt.mockedRootFS, "sys"))
+
+			stats, err := Info()
+			skipIfNotImplementedErr(t, err)
+			if err != nil {
+				t.Errorf("error %v", err)
+			}
+			if !reflect.DeepEqual(stats, tt.stats) {
+				t.Errorf("got: %+v\nwant: %+v", stats, tt.stats)
+			}
+		})
 	}
 }
