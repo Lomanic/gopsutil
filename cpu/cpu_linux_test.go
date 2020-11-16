@@ -94,6 +94,13 @@ func TestCPUCountsAgainstLscpu(t *testing.T) {
 	}
 }
 
+// generate testdata dirs with the following
+// # on the host to be mocked
+// TMP=$(mktemp -d); for I in $(ls -1 /proc/cpuinfo /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq /sys/devices/system/cpu/cpu*/topology/core_id); do mkdir -p "$TMP/${I%/*}"; cp "$I" "$TMP/$I"; done; tar czvf rootfs.tar.gz "$TMP"; rm -rf "$TMP"
+// # copy rootfs.tar.gz on the Go dev machine and extract it to a new testdata dir
+// mkdir cpu/testdata/linux/cpuinfo/newtestcase
+// cd cpu/testdata/linux/cpuinfo/newtestcase
+// tar xzvf /tmp/rootfs.tar.gz --strip-component=2
 var cpuInfoTests = []struct {
 	mockedRootFS string
 	stats        []InfoStat
