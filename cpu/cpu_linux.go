@@ -112,6 +112,7 @@ func InfoWithContext(ctx context.Context) ([]InfoStat, error) {
 
 	var ret []InfoStat
 	var processorName string
+	var armHardware string
 
 	c := InfoStat{CPU: -1, Cores: 1}
 	for _, line := range lines {
@@ -186,6 +187,9 @@ func InfoWithContext(ctx context.Context) ([]InfoStat, error) {
 			})
 		case "microcode":
 			c.Microcode = value
+		case "Hardware":
+			// fmt.Println("KEY", key, value)
+			armHardware = value
 		}
 	}
 	if c.CPU >= 0 {
@@ -194,6 +198,13 @@ func InfoWithContext(ctx context.Context) ([]InfoStat, error) {
 			return ret, err
 		}
 		ret = append(ret, c)
+	}
+	if armHardware != "" {
+		for i := range ret {
+			if ret[i].Model == "" {
+				ret[i].Model = armHardware
+			}
+		}
 	}
 	return ret, nil
 }
