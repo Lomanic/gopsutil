@@ -43,6 +43,18 @@ type diskPerformance struct {
 	alignmentPadding    uint32 // necessary for 32bit support, see https://github.com/elastic/beats/pull/16553
 }
 
+//
+type storagePropertyQuery struct {
+	PropertyId uint32
+	QueryType  uint32
+}
+
+// https://docs.microsoft.com/en-us/windows/win32/api/winioctl/ns-winioctl-storage_descriptor_header
+type storageDescriptorHeader struct {
+	Version uint32
+	Size    uint32
+}
+
 func UsageWithContext(ctx context.Context, path string) (*UsageStat, error) {
 	lpFreeBytesAvailable := int64(0)
 	lpTotalNumberOfBytes := int64(0)
@@ -135,6 +147,8 @@ func IOCountersWithContext(ctx context.Context, names ...string) (map[string]IOC
 	// https://github.com/giampaolo/psutil/blob/544e9daa4f66a9f80d7bf6c7886d693ee42f0a13/psutil/arch/windows/disk.c#L83
 	drivemap := make(map[string]IOCountersStat, 0)
 	var diskPerformance diskPerformance
+	var storagePropertyQuery storagePropertyQuery
+	var storageDescriptorHeader storageDescriptorHeader
 
 	lpBuffer := make([]uint16, 254)
 	lpBufferLen, err := windows.GetLogicalDriveStrings(uint32(len(lpBuffer)), &lpBuffer[0])
@@ -153,7 +167,9 @@ func IOCountersWithContext(ctx context.Context, names ...string) (map[string]IOC
 				continue
 			}
 			szDevice := fmt.Sprintf(`\\.\%s`, path)
+			// http://www.ioctls.net/
 			const IOCTL_DISK_PERFORMANCE = 0x70020
+			const IOCTL_STORAGE_QUERY_PROPERTY = 0x2d1400
 			h, err := windows.CreateFile(syscall.StringToUTF16Ptr(szDevice), 0, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, 0, 0)
 			if err != nil {
 				if err == windows.ERROR_FILE_NOT_FOUND {
@@ -162,20 +178,32 @@ func IOCountersWithContext(ctx context.Context, names ...string) (map[string]IOC
 				return drivemap, err
 			}
 			defer windows.CloseHandle(h)
-
-			var diskPerformanceSize uint32
-			err = windows.DeviceIoControl(h, IOCTL_DISK_PERFORMANCE, nil, 0, (*byte)(unsafe.Pointer(&diskPerformance)), uint32(unsafe.Sizeof(diskPerformance)), &diskPerformanceSize, nil)
+			var junk uint32
+			err = windows.DeviceIoControl(h, IOCTL_DISK_PERFORMANCE, nil, 0, (*byte)(unsafe.Pointer(&diskPerformance)), uint32(unsafe.Sizeof(diskPerformance)), &junk, nil)
 			if err != nil {
 				return drivemap, err
 			}
+			// https://gist.github.com/LambdaSix/d0ff2d33f547398e9bebcac545215662
+			var dwBytesReturned uint32
+			_ = windows.DeviceIoControl(h, IOCTL_STORAGE_QUERY_PROPERTY, (*byte)(unsafe.Pointer(&storagePropertyQuery)), uint32(unsafe.Sizeof(storagePropertyQuery)),
+				(*byte)(unsafe.Pointer(&storageDescriptorHeader)), uint32(unsafe.Sizeof(storageDescriptorHeader)), &dwBytesReturned, nil)
+			fmt.Println("toto", storageDescriptorHeader.Size, dwBytesReturned)
+			pOutBuffer := make([]byte, storageDescriptorHeader.Size)
+			_ = windows.DeviceIoControl(h, IOCTL_STORAGE_QUERY_PROPERTY, (*byte)(unsafe.Pointer(&storagePropertyQuery)), uint32(unsafe.Sizeof(storagePropertyQuery)),
+				(*byte)(unsafe.Pointer(&pOutBuffer)), uint32(unsafe.Sizeof(pOutBuffer)), &dwBytesReturned, nil)
+			if err != nil {
+				return drivemap, err
+			}
+
 			drivemap[path] = IOCountersStat{
-				ReadBytes:  uint64(diskPerformance.BytesRead),
-				WriteBytes: uint64(diskPerformance.BytesWritten),
-				ReadCount:  uint64(diskPerformance.ReadCount),
-				WriteCount: uint64(diskPerformance.WriteCount),
-				ReadTime:   uint64(diskPerformance.ReadTime / 10000 / 1000), // convert to ms: https://github.com/giampaolo/psutil/issues/1012
-				WriteTime:  uint64(diskPerformance.WriteTime / 10000 / 1000),
-				Name:       path,
+				ReadBytes:    uint64(diskPerformance.BytesRead),
+				WriteBytes:   uint64(diskPerformance.BytesWritten),
+				ReadCount:    uint64(diskPerformance.ReadCount),
+				WriteCount:   uint64(diskPerformance.WriteCount),
+				ReadTime:     uint64(diskPerformance.ReadTime / 10000 / 1000), // convert to ms: https://github.com/giampaolo/psutil/issues/1012
+				WriteTime:    uint64(diskPerformance.WriteTime / 10000 / 1000),
+				Name:         path,
+				SerialNumber: "",
 			}
 		}
 	}
