@@ -6,6 +6,7 @@ package cpu
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"unsafe"
 
 	"github.com/shirou/gopsutil/v3/internal/common"
@@ -149,27 +150,54 @@ func perCPUTimes() ([]TimesStat, error) {
 
 // makes call to Windows API function to retrieve performance information for each core
 func perfInfo() ([]win32_SystemProcessorPerformanceInformation, error) {
-	// Make maxResults large for safety.
-	// We can't invoke the api call with a results array that's too small.
-	// If we have more than 2056 cores on a single host, then it's probably the future.
-	maxBuffer := 2056
-	// buffer for results from the windows proc
-	resultBuffer := make([]win32_SystemProcessorPerformanceInformation, maxBuffer)
-	// size of the buffer in memory
-	bufferSize := uintptr(win32_SystemProcessorPerformanceInfoSize) * uintptr(maxBuffer)
-	// size of the returned response
+	buffer := make([]byte, 1024)
 	var retSize uint32
+	var retCode uintptr
 
-	// Invoke windows api proc.
-	// The returned err from the windows dll proc will always be non-nil even when successful.
-	// See https://godoc.org/golang.org/x/sys/windows#LazyProc.Call for more information
-	retCode, _, err := common.ProcNtQuerySystemInformation.Call(
-		win32_SystemProcessorPerformanceInformationClass, // System Information Class -> SystemProcessorPerformanceInformation
-		uintptr(unsafe.Pointer(&resultBuffer[0])),        // pointer to first element in result buffer
-		bufferSize,                        // size of the buffer in memory
-		uintptr(unsafe.Pointer(&retSize)), // pointer to the size of the returned results the windows proc will set this
-	)
+	for {
+		retCode, _, _ = common.ProcNtQuerySystemInformation.Call(
+			win32_SystemProcessorPerformanceInformationClass, // System Information Class -> SystemProcessorPerformanceInformation
+			uintptr(unsafe.Pointer(&buffer[0])),        // pointer to first element in result buffer
+			uintptr(len(buffer)),                        // size of the buffer in memory
+			uintptr(unsafe.Pointer(&retSize)), // pointer to the size of the returned results the windows proc will set this
+		)
+		/*if windows.NTStatus(retCode) == windows.STATUS_INFO_LENGTH_MISMATCH || windows.NTStatus(retCode) == windows.STATUS_BUFFER_OVERFLOW || windows.NTStatus(retCode) == windows.STATUS_BUFFER_TOO_SMALL {
+			bufferSize = uintptr(retSize)
+		}*/
+		if windows.NTStatus(retCode) == windows.STATUS_BUFFER_OVERFLOW ||
+			windows.NTStatus(retCode) == windows.STATUS_BUFFER_TOO_SMALL ||
+			windows.NTStatus(retCode) == windows.STATUS_INFO_LENGTH_MISMATCH {
+			if int(retSize) <= cap(buffer) {
+				(*reflect.SliceHeader)(unsafe.Pointer(&buffer)).Len = int(retSize)
+			} else {
+				buffer = make([]byte, int(retSize))
+			}
+			continue
+		}
+		// if no error
+		break
+	}
+	if retCode>>30 != 3 {
+		buffer = (buffer)[:int(retLen)]
 
+		handlesList := (*win32_SystemProcessorPerformanceInformation)(unsafe.Pointer(&buffer[0]))
+		handles := make([]SystemHandleInformationExItem, int(handlesList.NumberOfHandles))
+		hdr := (*reflect.SliceHeader)(unsafe.Pointer(&handles))
+		hdr.Data = uintptr(unsafe.Pointer(&handlesList.Handles[0]))
+
+		return handles, nil
+	}
+	/*if errno, ok := err.(windows.Errno); ok {
+		fmt.Println("errno", errno)
+		if errno == windows.STATUS_INFO_LENGTH_MISMATCH {
+			//Do whatever
+			fmt.Println("HEEEEEEEEREEEEEEEEEE")
+		}
+	} */
+	//fmt.Println("ProcNtQuerySystemInformation err", err)
+	//fmt.Println("ProcNtQuerySystemInformation bufferSize", bufferSize)
+	//fmt.Println("ProcNtQuerySystemInformation retSize", retSize)
+	//fmt.Println()
 	// check return code for errors
 	if retCode != 0 {
 		return nil, fmt.Errorf("call to NtQuerySystemInformation returned %d. err: %s", retCode, err.Error())
