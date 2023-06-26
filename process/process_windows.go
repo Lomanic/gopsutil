@@ -93,7 +93,7 @@ type processBasicInformation32 struct {
 	Reserved2       uint32
 	Reserved3       uint32
 	UniqueProcessId uint32
-	Reserved4       uint32
+	InheritedFromUniqueProcessID        uint32
 }
 
 type processBasicInformation64 struct {
@@ -102,7 +102,7 @@ type processBasicInformation64 struct {
 	Reserved2       uint64
 	Reserved3       uint64
 	UniqueProcessId uint64
-	Reserved4       uint64
+	InheritedFromUniqueProcessID        uint64
 }
 
 type processEnvironmentBlock32 struct {
@@ -302,20 +302,38 @@ func PidExistsWithContext(ctx context.Context, pid int32) (bool, error) {
 }
 
 func (p *Process) PpidWithContext(ctx context.Context) (int32, error) {
-	// if cached already, return from cache
-	cachedPpid := p.getPpid()
-	if cachedPpid != 0 {
-		return cachedPpid, nil
-	}
-
 	ppid, _, _, err := getFromSnapProcess(p.Pid)
 	if err != nil {
 		return 0, err
 	}
 
-	// no errors and not cached already, so cache it
-	p.setPpid(ppid)
+	return ppid, nil
+}
 
+func (p *Process) PpidWithContextViaPEB(ctx context.Context) (int32, error) {
+	h, err := windows.OpenProcess(processQueryInformation|windows.PROCESS_VM_READ, false, uint32(p.Pid))
+	if err == windows.ERROR_ACCESS_DENIED || err == windows.ERROR_INVALID_PARAMETER {
+		ppid, _, _, err := getFromSnapProcess(p.Pid)
+		if err != nil {
+			return 0, err
+		}
+		return ppid, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	defer syscall.CloseHandle(syscall.Handle(h))
+
+	procIs32Bits := is32BitProcess(h)
+
+	_, ppid, err := queryPebAddress(syscall.Handle(h), procIs32Bits)
+	if err != nil || ppid == -1 {
+		ppid, _, _, err := getFromSnapProcess(p.Pid)
+		if err != nil {
+			return 0, err
+		}
+		return ppid, nil
+	}
 	return ppid, nil
 }
 
@@ -941,7 +959,7 @@ func getProcessCPUTimes(pid int32) (SYSTEM_TIMES, error) {
 }
 
 func getUserProcessParams32(handle windows.Handle) (rtlUserProcessParameters32, error) {
-	pebAddress, err := queryPebAddress(syscall.Handle(handle), true)
+	pebAddress, _, err := queryPebAddress(syscall.Handle(handle), true)
 	if err != nil {
 		return rtlUserProcessParameters32{}, fmt.Errorf("cannot locate process PEB: %w", err)
 	}
@@ -960,7 +978,7 @@ func getUserProcessParams32(handle windows.Handle) (rtlUserProcessParameters32, 
 }
 
 func getUserProcessParams64(handle windows.Handle) (rtlUserProcessParameters64, error) {
-	pebAddress, err := queryPebAddress(syscall.Handle(handle), false)
+	pebAddress, _, err := queryPebAddress(syscall.Handle(handle), false)
 	if err != nil {
 		return rtlUserProcessParameters64{}, fmt.Errorf("cannot locate process PEB: %w", err)
 	}

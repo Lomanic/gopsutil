@@ -1,6 +1,7 @@
 package process
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -167,6 +168,37 @@ func Test_Process_Ppid(t *testing.T) {
 	expected := os.Getppid()
 	if v != int32(expected) {
 		t.Errorf("return value is %v, expected %v", v, expected)
+	}
+}
+func Test_Process_PpidViaPEB(t *testing.T) {
+	p := testGetProcess()
+
+	v, err := p.PpidWithContextViaPEB(context.Background())
+	skipIfNotImplementedErr(t, err)
+	if err != nil {
+		t.Errorf("getting ppid error %v", err)
+	}
+	if v == 0 {
+		t.Errorf("return value is 0 %v", v)
+	}
+	expected := os.Getppid()
+	if v != int32(expected) {
+		t.Errorf("return value is %v, expected %v", v, expected)
+	}
+}
+
+func Test_Process_PpidViaPEB_Same_As_OG(t *testing.T) {
+	procs, err := Processes()
+	skipIfNotImplementedErr(t, err)
+	if err != nil {
+		t.Fatalf("getting processes error %v", err)
+	}
+	for _, proc := range procs {
+		expected, _ := proc.Ppid()
+		got, _ := proc.PpidWithContextViaPEB(context.Background())
+		if expected != got {
+			t.Errorf("pid %v: return value is %v, expected %v", proc.Pid, got, expected)
+		}
 	}
 }
 
@@ -857,5 +889,11 @@ func BenchmarkProcessPpid(b *testing.B) {
 	p := testGetProcess()
 	for i := 0; i < b.N; i++ {
 		p.Ppid()
+	}
+}
+func BenchmarkProcessPpidViaPEB(b *testing.B) {
+	p := testGetProcess()
+	for i := 0; i < b.N; i++ {
+		p.PpidWithContextViaPEB(context.Background())
 	}
 }

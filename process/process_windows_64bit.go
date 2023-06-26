@@ -24,7 +24,7 @@ type PROCESS_MEMORY_COUNTERS struct {
 	PeakPagefileUsage          uint64
 }
 
-func queryPebAddress(procHandle syscall.Handle, is32BitProcess bool) (uint64, error) {
+func queryPebAddress(procHandle syscall.Handle, is32BitProcess bool) (uint64, int32, error) {
 	if is32BitProcess {
 		// we are on a 64-bit process reading an external 32-bit process
 		var wow64 uint
@@ -37,9 +37,9 @@ func queryPebAddress(procHandle syscall.Handle, is32BitProcess bool) (uint64, er
 			uintptr(0),
 		)
 		if status := windows.NTStatus(ret); status == windows.STATUS_SUCCESS {
-			return uint64(wow64), nil
+			return uint64(wow64), -1, nil
 		} else {
-			return 0, windows.NTStatus(ret)
+			return 0, -1, windows.NTStatus(ret)
 		}
 	} else {
 		// we are on a 64-bit process reading an external 64-bit process
@@ -53,9 +53,9 @@ func queryPebAddress(procHandle syscall.Handle, is32BitProcess bool) (uint64, er
 			uintptr(0),
 		)
 		if status := windows.NTStatus(ret); status == windows.STATUS_SUCCESS {
-			return info.PebBaseAddress, nil
+			return info.PebBaseAddress, int32(info.InheritedFromUniqueProcessID), nil
 		} else {
-			return 0, windows.NTStatus(ret)
+			return 0, -1, windows.NTStatus(ret)
 		}
 	}
 }
