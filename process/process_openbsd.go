@@ -143,7 +143,11 @@ func (p *Process) CmdlineWithContext(ctx context.Context) (string, error) {
 }
 
 func (p *Process) createTimeWithContext(ctx context.Context) (int64, error) {
-	return 0, common.ErrNotImplementedError
+	k, err := p.getKProc()
+	if err != nil {
+			return 0, err
+	}
+	return int64(k.Ustart_sec)*1000, nil
 }
 
 func (p *Process) StatusWithContext(ctx context.Context) ([]string, error) {
